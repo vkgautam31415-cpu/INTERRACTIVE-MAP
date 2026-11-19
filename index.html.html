@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jamia Millia Islamia: interactive campus map</title>
+<meta name="description" content="Explore the Jamia Millia Islamia campus in 3D: gates, faculties, library, hostels, food and facilities.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu&family=Public+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<style>
+:root{
+  --ink:#12261F; --muted:#586C63; --line:#D7E3DC; --mist:#F2F7F4; --paper:#FFFFFF;
+  --green:#0E6B4F; --green-dark:#0A4A37; --gold:#E2B84B;
+  --panel-w:380px;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:"Public Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--mist);display:flex;overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+
+/* ---------- side panel ---------- */
+#panel{width:var(--panel-w);max-width:100%;height:100dvh;background:var(--paper);display:flex;flex-direction:column;border-right:1px solid var(--line);z-index:5;flex:none}
+.brand{background:var(--green-dark);color:#fff;padding:22px 22px 18px}
+.brand .urdu{font-family:"Noto Nastaliq Urdu","Noto Naskh Arabic","Segoe UI",serif;font-size:1.65rem;line-height:2.1;color:var(--gold);margin:-6px 0 -2px;direction:rtl}
+.brand h1{font-family:"Source Serif 4",Georgia,"Times New Roman",serif;font-weight:600;font-size:1.5rem;line-height:1.2;margin:0}
+.brand p{margin:6px 0 0;font-size:.9rem;color:#CFE3D9}
+.tools{padding:14px 18px 10px;border-bottom:1px solid var(--line)}
+.search{position:relative}
+.search input{width:100%;padding:11px 14px 11px 40px;border:1px solid var(--line);border-radius:10px;font:inherit;background:var(--mist)}
+.search input:focus{outline:3px solid var(--gold);outline-offset:1px;background:#fff}
+.search svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);width:18px;height:18px;stroke:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.chip{--c:#888;--t:#eee;display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--muted);font-size:.85rem;font-weight:500}
+.chip i{width:10px;height:10px;border-radius:50%;background:var(--c);opacity:.45}
+.chip[aria-pressed="true"]{background:var(--t);border-color:var(--c);color:var(--ink)}
+.chip[aria-pressed="true"] i{opacity:1}
+.meta{display:flex;justify-content:space-between;align-items:center;padding:10px 18px;font-size:.82rem;color:var(--muted)}
+.linkbtn{background:none;border:0;color:var(--green);font-weight:600;padding:2px 0;text-decoration:underline}
+#list{flex:1;overflow-y:auto;padding:0 8px 24px}
+#list h2{font-family:"Source Serif 4",Georgia,serif;font-size:1rem;font-weight:600;margin:14px 10px 4px;display:flex;align-items:center;gap:8px}
+#list h2 i{width:10px;height:10px;border-radius:50%}
+.place{display:block;width:100%;text-align:left;background:none;border:0;border-radius:10px;padding:9px 10px;margin:1px 0}
+.place:hover{background:var(--mist)}
+.place[aria-current="true"]{background:var(--mist);box-shadow:inset 3px 0 0 var(--green)}
+.place b{display:block;font-weight:500;font-size:.93rem;line-height:1.3}
+.place span{font-size:.8rem;color:var(--muted)}
+#empty{padding:24px 18px;color:var(--muted);font-size:.92rem}
+
+/* ---------- map ---------- */
+#stage{position:relative;flex:1;min-width:0;height:100dvh}
+#map{position:absolute;inset:0}
+.viewbar{position:absolute;top:12px;left:12px;display:flex;gap:8px;flex-wrap:wrap;z-index:2}
+.viewbar button{background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 14px;font-weight:600;font-size:.88rem;box-shadow:0 1px 4px rgba(18,38,31,.18)}
+.viewbar button:hover{background:var(--mist)}
+#panelToggle{display:none}
+#fallback{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:32px;background:var(--mist);z-index:3;color:var(--ink)}
+
+/* pins */
+.pin{display:block;width:22px;height:22px;border-radius:50%;background:var(--c);border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.45);cursor:pointer;transition:transform .15s}
+.pin:hover,.pin.on{transform:scale(1.35)}
+.pin.on{box-shadow:0 0 0 4px rgba(226,184,75,.85),0 1px 5px rgba(0,0,0,.45)}
+
+/* popup */
+.maplibregl-popup-content{font-family:"Public Sans",system-ui,sans-serif;border-radius:12px;padding:0;overflow:hidden;box-shadow:0 6px 24px rgba(18,38,31,.28)}
+.maplibregl-popup-close-button{font-size:22px;padding:2px 9px;color:#fff;z-index:1}
+.pop img{display:block;width:100%;height:130px;object-fit:cover}
+.pop .top{padding:12px 36px 10px 14px;color:#fff}
+.pop h3{font-family:"Source Serif 4",Georgia,serif;font-weight:600;font-size:1.05rem;line-height:1.25;margin:0}
+.pop .kind{font-size:.78rem;opacity:.9;margin-top:3px}
+.pop .body{padding:12px 14px 14px;font-size:.9rem;line-height:1.5}
+.pop .body p{margin:0 0 10px}
+.pop .approx{font-size:.78rem;color:#8A5A00;background:#FFF4D6;border-radius:6px;padding:4px 8px;margin-bottom:10px;display:inline-block}
+.pop a{color:var(--green);font-weight:600}
+
+#calib{position:absolute;left:12px;bottom:34px;width:270px;max-height:70%;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;box-shadow:0 4px 18px rgba(18,38,31,.25);z-index:2;font-size:.85rem}
+#calib h2{font-family:"Source Serif 4",Georgia,serif;font-size:1rem;margin:0 0 6px}
+#calib p{margin:0 0 10px;color:var(--muted);line-height:1.4}
+.crow{display:grid;grid-template-columns:1fr auto;gap:2px 8px;margin-bottom:8px}
+.crow input{grid-column:1 / -1;width:100%;accent-color:var(--green)}
+#calibOut{width:100%;font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--mist);resize:none}
+#calibCopy{margin-top:8px;width:100%;background:var(--green);color:#fff;border:0;border-radius:8px;padding:9px;font-weight:600}
+/* ---------- small screens ---------- */
+@media (max-width:760px){
+  body{flex-direction:column-reverse}
+  #panel{width:100%;height:46dvh;border-right:0;border-top:1px solid var(--line);border-radius:16px 16px 0 0;margin-top:-16px;box-shadow:0 -4px 16px rgba(18,38,31,.18)}
+  #panel.collapsed{height:0;overflow:hidden;border:0}
+  #stage{height:auto;flex:1}
+  .brand{padding:12px 18px 10px}
+  .brand .urdu{font-size:1.3rem;line-height:1.9}
+  .brand h1{font-size:1.2rem}
+  .brand p{display:none}
+  #panelToggle{display:inline-block}
+}
+@media (prefers-reduced-motion:reduce){.pin{transition:none}}
+</style>
+</head>
+<body>
+
+<aside id="panel" aria-label="Places on campus">
+  <header class="brand">
+    <div class="urdu" lang="ur">جامعہ ملیہ اسلامیہ</div>
+    <h1>Jamia Millia Islamia</h1>
+    <p>Interactive 3D campus map: tilt, rotate and tap a pin to explore.</p>
+  </header>
+  <div class="tools">
+    <label class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search places, for example library" aria-label="Search places" autocomplete="off">
+    </label>
+    <div class="chips" id="chips" role="group" aria-label="Filter by category"></div>
+  </div>
+  <div class="meta"><span id="count"></span><button class="linkbtn" id="showAll" type="button">Show all</button></div>
+  <div id="list"></div>
+  <div id="empty" hidden>No places match. Clear the search or turn a category back on.</div>
+</aside>
+
+<main id="stage">
+  <div id="map" aria-label="Campus map"></div>
+  <div class="viewbar">
+    <button id="panelToggle" type="button" aria-expanded="true">Hide list</button>
+    <button id="btn3d" type="button">Switch to 2D</button>
+    <button id="btnReset" type="button">Reset view</button>
+    <button id="btnBuildings" type="button" hidden>Hide default buildings</button>
+    <button id="btnTrees" type="button" hidden>Hide trees</button>
+  </div>
+  <div id="calib" hidden>
+    <h2>Adjust the 3D model</h2>
+    <p>Drag the sliders until the model sits on the real buildings, then copy the values into the MODEL block of this file (or send them to Claude).</p>
+    <div id="calibBody"></div>
+    <textarea id="calibOut" rows="4" readonly aria-label="Values to copy"></textarea>
+    <button id="calibCopy" type="button">Copy values</button>
+  </div>
+  <div id="fallback"><div><h2>This map needs WebGL</h2><p>Your browser or device could not start the 3D map. Try an up-to-date Chrome, Edge, Firefox or Safari, and make sure hardware acceleration is on.</p></div></div>
+</main>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+/* =====================================================================
+   HOW TO EDIT THIS FILE (no coding needed)
+   1. PLACES: change a name, description, latitude (lat) or longitude (lng).
+      When you have checked a pin on the real map, set  verified: true
+      (this removes the "approximate location" note from its popup).
+      To add a photo, put the file in an  images  folder next to this
+      file and write its filename, for example  photo: "library.jpg".
+   2. MODEL: your SketchUp campus model (model.glb) is already placed using
+      the Y-shaped Faculty of Architecture & Ekistics as the reference point.
+      If it needs a small nudge, open the page with  ?calibrate  at the end
+      of its address, use the sliders, then copy the numbers shown into
+      the MODEL block below.
+   ===================================================================== */
+
+const PLACES = [
+ {
+  "id": 1,
+  "name": "Gate No. 1",
+  "cat": "Gates",
+  "type": "Gate",
+  "lat": 28.5648,
+  "lng": 77.2776,
+  "desc": "Campus entrance on the Maulana Mohammad Ali Jauhar Marg side.",
+  "photo": "",
+  "verified": false
+ },
+ {
+  "id": 2,
+  "name": "Gate No. 4",
+  "cat": "Gates",
+  "type": "Gate",
+  "lat": 28.561186392801,
+  "lng": 77.2795162422063,
+  "desc": "Campus entrance; Indian Bank branch is near this gate.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 3,
+  "name": "Gate No. 7",
+  "cat": "Gates",
+  "type": "Gate",
+  "lat": 28.5612714406931,
+  "lng": 77.2811913668757,
+  "desc": "Campus entrance.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 4,
+  "name": "Gate No. 8",
+  "cat": "Gates",
+  "type": "Gate",
+  "lat": 28.5588,
+  "lng": 77.2815,
+  "desc": "Campus entrance.",
+  "photo": "",
+  "verified": false
+ },
+ {
+  "id": 5,
+  "name": "Dr. Zakir Husain Library (Central Library)",
+  "cat": "Academic",
+  "type": "Library",
+  "lat": 28.5629225743184,
+  "lng": 77.2819717118804,
+  "desc": "Central library of the university; new building stands behind the older one.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 6,
+  "name": "Administrative Block / Vice-Chancellor’s Office",
+  "cat": "Academic",
+  "type": "Administration",
+  "lat": 28.5606288525569,
+  "lng": 77.2851236193301,
+  "desc": "Main administrative offices.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 7,
+  "name": "Faculty of Engineering & Technology",
+  "cat": "Academic",
+  "type": "Faculty",
+  "lat": 28.5602628266788,
+  "lng": 77.2795174247674,
+  "desc": "Engineering and technology departments.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 8,
+  "name": "Faculty of Fine Arts",
+  "cat": "Academic",
+  "type": "Faculty",
+  "lat": 28.5635136823701,
+  "lng": 77.2853117695675,
+  "desc": "Fine arts departments and studios.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 9,
+  "name": "A.J.K. Mass Communication Research Centre (MCRC)",
+  "cat": "Academic",
+  "type": "Centre",
+  "lat": 28.5601477050137,
+  "lng": 77.2849232327417,
+  "desc": "Mass communication research and teaching centre.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 10,
+  "name": "Centre for Theoretical Physics",
+  "cat": "Academic",
+  "type": "Centre",
+  "lat": 28.5628511057759,
+  "lng": 77.2804942722033,
+  "desc": "Theoretical physics research centre.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 11,
+  "name": "Faculty of Law",
+  "cat": "Academic",
+  "type": "Faculty",
+  "lat": 28.558098787068,
+  "lng": 77.2810830745553,
+  "desc": "Law faculty.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 12,
+  "name": "Faculty of Humanities & Languages",
+  "cat": "Academic",
+  "type": "Faculty",
+  "lat": 28.5606013894061,
+  "lng": 77.2819282099655,
+  "desc": "Humanities and languages departments.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 13,
+  "name": "Faculty of Dentistry",
+  "cat": "Academic",
+  "type": "Faculty",
+  "lat": 28.5643749689043,
+  "lng": 77.2796167206916,
+  "desc": "Dental faculty and clinic.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 14,
+  "name": "Faculty of Education",
+  "cat": "Academic",
+  "type": "Faculty",
+  "lat": 28.5598421379493,
+  "lng": 77.2898327380246,
+  "desc": "Education faculty.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 15,
+  "name": "Faculty of Architecture & Ekistics",
+  "cat": "Academic",
+  "type": "Faculty",
+  "lat": 28.5591019255749,
+  "lng": 77.277878786458,
+  "desc": "Architecture and ekistics departments.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 16,
+  "name": "Begum Hazrat Mahal (BHM) Girls’ Hostel",
+  "cat": "Hostels",
+  "type": "Girls’ hostel",
+  "lat": 28.5561899208476,
+  "lng": 77.2817876189697,
+  "desc": "Girls’ hostel, Campus B (capacity about 419).",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 17,
+  "name": "Central Canteen",
+  "cat": "Food",
+  "type": "Canteen",
+  "lat": 28.5621563785629,
+  "lng": 77.280221971997,
+  "desc": "Main student canteen.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 18,
+  "name": "Central Mosque",
+  "cat": "Facilities",
+  "type": "Mosque",
+  "lat": 28.5626916712957,
+  "lng": 77.2817469028499,
+  "desc": "Central mosque opposite the central library; capacity over 1000.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 19,
+  "name": "Dr. Zakir Husain Mausoleum",
+  "cat": "Facilities",
+  "type": "Landmark",
+  "lat": 28.5619559646662,
+  "lng": 77.2829991170776,
+  "desc": "Mausoleum of Dr. Zakir Husain on the campus.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 20,
+  "name": "Dr. M.A. Ansari Health Centre",
+  "cat": "Facilities",
+  "type": "Health centre",
+  "lat": 28.5648801053924,
+  "lng": 77.2788829250368,
+  "desc": "University health centre.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 21,
+  "name": "Dr. M.A. Ansari Auditorium",
+  "cat": "Facilities",
+  "type": "Auditorium",
+  "lat": 28.560485546074,
+  "lng": 77.2834952756444,
+  "desc": "Main auditorium for events and convocations.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 22,
+  "name": "Nawab Mansoor Ali Khan Pataudi Sports Complex",
+  "cat": "Facilities",
+  "type": "Sports",
+  "lat": 28.5625562320241,
+  "lng": 77.2790523834702,
+  "desc": "Sports complex with courts and grounds.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 23,
+  "name": "Indian Bank (Jamia branch)",
+  "cat": "Facilities",
+  "type": "Bank",
+  "lat": 28.5615899466059,
+  "lng": 77.2825547289165,
+  "desc": "Bank branch near Gate No. 4; hostel and mess fees are paid here.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 24,
+  "name": "ATM (on campus)",
+  "cat": "Facilities",
+  "type": "ATM",
+  "lat": 28.561344967914,
+  "lng": 77.2797896828476,
+  "desc": "On-campus ATM.",
+  "photo": "",
+  "verified": true
+ },
+ {
+  "id": 25,
+  "name": "Jamia Millia Islamia Metro Station",
+  "cat": "Facilities",
+  "type": "Transport",
+  "lat": 28.5630113443746,
+  "lng": 77.2864832467541,
+  "desc": "Nearest Delhi Metro station.",
+  "photo": "",
+  "verified": true
+ }
+];
+
+const CATS = {
+  Gates:      {color:"#B7791F", tint:"#FBF0DC"},
+  Academic:   {color:"#0E6B4F", tint:"#DDF1E8"},
+  Hostels:    {color:"#2B6CB0", tint:"#E1EDF9"},
+  Food:       {color:"#C0476B", tint:"#F9E3EA"},
+  Facilities: {color:"#6B4FA0", tint:"#ECE6F6"}
+};
+
+const CAMPUS = {lng:77.28124, lat:28.56010, zoom:15.3, pitch:58, bearing:-18};
+
+const MODEL = {
+  enabled:true,                 // set to false to hide the 3D model
+  url:"model.glb",              // the model file (keep it next to this file)
+  lng:77.277878786458,   // longitude of the Y-shaped building (Faculty of Architecture & Ekistics)
+  lat:28.5591019255749,   // latitude of the same building
+  altitude:0,                   // metres above the ground (leave at 0)
+  rotationDeg:-5.0,             // turns the model; use the calibrate panel to fine-tune
+  scale:11.5,                  // real metres per model unit
+  moveEast:0,                   // nudge the model east (+) or west (-), in metres
+  moveNorth:0,                  // nudge the model north (+) or south (-), in metres
+  opacity:1,                    // 1 = solid; lower it while aligning
+  hideDefaultBuildings:true     // hides the map's own grey blocks so they don't double up
+};
+
+/* ---------------------- helpers ---------------------- */
+const $ = s => document.querySelector(s);
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const isSmall = () => matchMedia("(max-width:760px)").matches;
+const loadScript = url => new Promise((ok,fail)=>{const s=document.createElement("script");s.src=url;s.onload=ok;s.onerror=()=>fail(new Error("Could not load "+url));document.head.appendChild(s);});
+
+/* ---------------------- map ---------------------- */
+let map;
+try{
+  map = new maplibregl.Map({
+    container:"map",
+    style:"https://tiles.openfreemap.org/styles/liberty",
+    center:[CAMPUS.lng,CAMPUS.lat], zoom:CAMPUS.zoom, pitch:CAMPUS.pitch, bearing:CAMPUS.bearing,
+    maxPitch:75, attributionControl:{compact:true}
+  });
+}catch(e){ $("#fallback").style.display="flex"; console.error(e); }
+
+if(map){
+  map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),"top-right");
+  map.addControl(new maplibregl.ScaleControl({unit:"metric"}),"bottom-left");
+  map.addControl(new maplibregl.GeolocateControl({positionOptions:{enableHighAccuracy:true},trackUserLocation:false}),"top-right");
+
+  map.on("load", () => {
+    add3DBuildings();
+    try{ addLabels(); }catch(e){ console.warn("Labels skipped:",e); }
+    if(MODEL.enabled) addModel().catch(e=>console.warn("Model not shown:",e));
+    updateViewButtons();
+  });
+  map.on("pitchend", updateViewButtons);
+  map.on("error", e => console.warn("Map warning:", e && e.error && e.error.message));
+}
+
+let VSRC=null;
+function addRoads(before){
+  const W=["match",["get","class"],"motorway",14,"trunk",14,"primary",12,"secondary",10,"tertiary",8,"minor",6,"service",4,0];
+  const wide=["motorway","trunk","primary","secondary","tertiary","minor","service"];
+  const notTunnel=["!=",["get","brunnel"],"tunnel"];
+  const lineW=(k)=>["interpolate",["exponential",1.6],["zoom"],13,["*",W,0.1*k],16,["*",W,0.55*k],18,["*",W,1.6*k],20,["*",W,4.5*k]];
+  map.addLayer({id:"campus-road-casing",type:"line",source:VSRC,"source-layer":"transportation",minzoom:13,
+    filter:["all",["in",["get","class"],["literal",wide]],notTunnel],
+    layout:{"line-cap":"round","line-join":"round"},
+    paint:{"line-color":"#B9C6BE","line-width":lineW(1.35)}},before);
+  map.addLayer({id:"campus-road",type:"line",source:VSRC,"source-layer":"transportation",minzoom:13,
+    filter:["all",["in",["get","class"],["literal",wide]],notTunnel],
+    layout:{"line-cap":"round","line-join":"round"},
+    paint:{"line-color":["match",["get","class"],["motorway","trunk","primary"],"#FFFFFF","secondary","#FFFDF4","#FFFFFF"],"line-width":lineW(1)}},before);
+  map.addLayer({id:"campus-paths",type:"line",source:VSRC,"source-layer":"transportation",minzoom:15,
+    filter:["in",["get","class"],["literal",["path","pedestrian","track"]]],
+    layout:{"line-cap":"butt","line-join":"round"},
+    paint:{"line-color":"#8FA196","line-dasharray":[2,1.4],"line-width":["interpolate",["linear"],["zoom"],15,0.7,18,2.2,20,4]}},before);
+  map.addLayer({id:"campus-road-names",type:"symbol",source:VSRC,"source-layer":"transportation_name",minzoom:15.5,
+    layout:{"symbol-placement":"line","text-field":["coalesce",["get","name:latin"],["get","name"]],"text-font":["Noto Sans Regular"],"text-size":["interpolate",["linear"],["zoom"],15.5,10,19,13],"text-letter-spacing":0.05},
+    paint:{"text-color":"#4A5D54","text-halo-color":"#FFFFFF","text-halo-width":1.6}});
+}
+function add3DBuildings(){
+  const style = map.getStyle();
+  const src = Object.keys(style.sources).find(k => style.sources[k].type==="vector");
+  if(!src) return;
+  if(map.getLayer("building-3d")) map.setLayoutProperty("building-3d","visibility","none");
+  const firstSymbol = style.layers.find(l => l.type==="symbol");
+  VSRC = src; try{ addRoads(firstSymbol && firstSymbol.id); }catch(e){ console.warn("Roads layer skipped:",e); }
+  map.addLayer({
+    id:"campus-buildings", type:"fill-extrusion", source:src, "source-layer":"building", minzoom:14,
+    paint:{
+      "fill-extrusion-color":["interpolate",["linear"],["coalesce",["get","render_height"],8],0,"#E6EEE9",40,"#C5D6CC",120,"#A9C0B3"],
+      "fill-extrusion-height":["coalesce",["get","render_height"],8],
+      "fill-extrusion-base":["coalesce",["get","render_min_height"],0],
+      "fill-extrusion-opacity":0.94
+    }
+  }, firstSymbol && firstSymbol.id);
+}
+
+/* ---------------------- SketchUp model ---------------------- */
+const M_PER_DEG_LAT = 110950;
+const mPerDegLng = lat => 111320*Math.cos(lat*Math.PI/180);
+let modelScene = null, world = null;
+
+function modelOrigin(){
+  const lat = MODEL.lat + MODEL.moveNorth/M_PER_DEG_LAT;
+  const lng = MODEL.lng + MODEL.moveEast/mPerDegLng(MODEL.lat);
+  return maplibregl.MercatorCoordinate.fromLngLat([lng,lat],MODEL.altitude);
+}
+function applyOpacity(){
+  if(!modelScene) return;
+  modelScene.traverse(o=>{ if(o.isMesh){ o.material.transparent=MODEL.opacity<1; o.material.opacity=MODEL.opacity; o.material.depthWrite=MODEL.opacity>=1; o.material.needsUpdate=true; } });
+  map.triggerRepaint();
+}
+function setDefaultBuildings(show){
+  if(map.getLayer("campus-buildings")) map.setLayoutProperty("campus-buildings","visibility",show?"visible":"none");
+  $("#btnBuildings").textContent = show ? "Hide default buildings" : "Show default buildings";
+}
+
+/* ---------------------- trees (decorative, placed to avoid buildings and roads) ---------------------- */
+const TREES = [[-4.87,-44.23,0.93,0.3,0],[-4.27,-46.9,0.95,0.36,1],[-5.25,-46.01,0.78,0.31,3],[-5.16,-45.26,1.0,0.36,1],[-5.85,-46.44,0.88,0.28,1],[-4.17,-45.03,0.85,0.33,0],[-5.91,-44.84,0.76,0.32,1],[-5.73,-44.28,0.85,0.36,0],[-6.23,-45.76,0.8,0.3,1],[-4.78,-46.53,0.95,0.37,3],[-4.26,-45.69,0.98,0.29,0],[-4.75,-44.77,0.89,0.38,1],[-6.3,-46.86,0.78,0.3,3],[3.22,-61.51,0.78,0.24,0],[58.96,-24.77,0.9,0.26,0],[60.01,36.45,0.78,0.28,0],[38.88,44.95,0.64,0.28,3],[64.49,-53.47,0.95,0.32,3],[41.04,-17.13,0.87,0.26,1],[13.33,-52.83,0.61,0.36,3],[11.76,17.57,0.65,0.36,0],[50.61,11.13,0.65,0.3,3],[56.66,-47.2,0.75,0.23,1],[5.9,46.81,0.68,0.31,3],[34.65,45.24,0.96,0.38,1],[67.2,-54.08,0.98,0.36,1],[59.99,39.86,0.76,0.24,0],[25.45,-68.61,0.84,0.29,2],[0.93,41.59,0.55,0.3,1],[28.66,-65.52,0.79,0.3,1],[21.34,43.84,0.58,0.24,0],[-15.89,31.8,0.67,0.31,3],[6.09,43.26,0.69,0.31,1],[18.14,-54.61,0.75,0.37,0],[62.02,21.68,0.83,0.24,1],[59.5,-62.58,0.69,0.27,2],[-2.4,7.72,0.85,0.23,3],[57.56,14.59,0.93,0.23,2],[33.14,-60.25,0.88,0.38,0],[59.89,20.35,0.87,0.28,3],[36.23,32.83,0.91,0.38,2],[52.56,-50.59,0.95,0.38,1],[0.89,-49.65,0.9,0.23,1],[32.92,-14.86,0.62,0.33,1],[-9.83,-22.52,0.89,0.33,1],[54.8,-25.89,0.59,0.37,0],[61.84,16.14,0.68,0.34,3],[36.83,49.33,0.98,0.25,0],[0.32,-46.08,0.97,0.25,3],[57.2,49.19,0.93,0.34,2],[68.84,44.98,0.84,0.37,1],[61.83,-32.71,0.83,0.3,2],[11.19,8.82,0.95,0.33,0],[54.24,-26.83,0.79,0.27,3],[57.21,-31.23,0.57,0.22,3],[55.38,15.75,0.79,0.35,0],[1.69,2.0,0.96,0.37,3],[8.06,-51.11,0.87,0.35,0],[59.18,-13.88,0.82,0.36,2],[58.37,13.26,0.99,0.29,3],[5.53,-53.98,0.63,0.28,0],[40.77,-31.18,0.7,0.36,1],[15.24,-52.97,0.73,0.37,3],[52.92,-27.09,0.66,0.32,0],[-12.01,16.24,0.93,0.22,1],[32.43,34.7,0.73,0.38,3],[4.32,5.32,0.68,0.32,2],[6.17,4.32,0.58,0.25,3],[31.59,40.32,0.56,0.28,2],[-0.21,6.52,0.76,0.25,3],[29.28,8.54,0.93,0.29,1],[57.57,-0.38,0.71,0.38,3],[3.65,-59.9,0.67,0.32,0],[69.13,3.66,0.64,0.23,2],[19.42,2.18,0.82,0.33,1],[37.35,42.26,0.9,0.34,3],[33.86,-55.1,0.96,0.33,2],[60.24,-61.68,0.91,0.25,3],[60.68,42.07,0.95,0.32,2],[4.89,37.16,0.92,0.28,0],[58.14,18.08,0.9,0.34,0],[19.85,-57.01,0.94,0.3,1],[27.61,11.87,0.98,0.32,3],[5.83,-19.64,0.59,0.31,1],[61.22,-58.93,0.67,0.23,2],[60.21,3.37,0.98,0.34,0],[34.45,-16.49,0.85,0.34,0],[-2.49,38.77,0.78,0.37,2],[48.62,-18.56,0.88,0.29,3],[18.77,51.13,0.94,0.24,3],[56.47,-35.78,0.63,0.35,2],[47.93,14.68,0.84,0.23,0],[56.35,-53.61,0.97,0.26,3],[29.48,41.26,0.94,0.31,1],[4.01,0.69,0.94,0.28,0],[28.23,-71.02,0.98,0.3,0],[-4.37,41.64,0.92,0.34,1],[34.23,-73.28,0.6,0.26,3],[24.64,-72.68,0.97,0.34,0],[29.31,-27.56,0.73,0.33,2],[56.25,4.73,0.7,0.27,2],[21.05,-61.34,0.68,0.32,2],[64.89,48.41,0.72,0.27,0],[25.97,34.58,0.56,0.27,1],[31.71,-56.38,0.99,0.33,3],[12.01,49.24,0.79,0.26,3],[21.86,-65.62,0.73,0.37,3],[32.17,-22.52,0.8,0.36,0],[59.61,-39.61,0.94,0.34,3],[4.07,-55.3,0.84,0.33,0],[70.59,6.95,0.7,0.3,1],[69.17,-49.51,0.97,0.33,1],[27.65,37.66,0.77,0.3,3],[-1.43,-28.35,0.66,0.32,1],[55.77,-48.82,0.95,0.24,3],[10.01,-56.53,0.75,0.32,0],[70.89,-61.09,0.75,0.32,1],[25.63,37.3,0.79,0.34,3],[25.21,-73.64,0.59,0.36,3],[5.91,2.31,0.73,0.28,0],[71.62,42.8,0.64,0.38,1],[66.94,44.6,0.98,0.24,1],[61.41,9.02,0.62,0.3,2],[1.91,7.08,0.88,0.27,2],[36.36,-22.26,0.89,0.37,3],[20.3,38.5,0.82,0.3,0],[29.03,44.73,0.61,0.33,3],[54.24,9.55,0.63,0.22,0],[0.76,4.46,0.75,0.37,3],[23.59,-9.71,0.56,0.26,1],[38.3,-78.0,0.91,0.23,1],[31.41,-64.76,0.98,0.31,3],[63.65,4.54,0.7,0.37,3],[28.9,12.06,0.84,0.24,3],[8.97,1.06,0.83,0.22,0],[24.28,48.1,0.63,0.33,0],[3.14,14.11,0.82,0.24,2],[32.82,46.6,0.57,0.26,1],[52.7,-49.05,0.87,0.31,3],[-2.51,-34.44,0.61,0.3,3],[28.82,51.3,1.0,0.24,2],[33.59,-17.51,0.82,0.23,2],[9.28,38.04,0.94,0.31,3],[31.25,-18.18,0.98,0.29,3],[7.19,-40.27,0.77,0.28,1],[35.55,38.82,0.68,0.36,0],[65.26,-20.6,0.98,0.3,3],[47.6,-19.91,0.58,0.25,0],[5.32,23.03,0.71,0.31,3],[-3.89,11.74,0.89,0.35,2],[60.45,-54.06,0.66,0.28,2],[23.74,42.16,0.87,0.25,0],[4.03,9.58,0.55,0.27,0],[37.71,45.05,0.65,0.32,3],[56.9,-43.77,0.64,0.33,0],[57.56,4.04,0.68,0.37,2],[6.64,21.08,0.6,0.36,0],[59.69,-26.75,0.64,0.25,0],[35.27,6.15,0.8,0.37,3],[57.04,50.29,0.76,0.31,3],[32.7,-18.8,0.79,0.29,1],[24.39,-6.56,0.77,0.29,2],[50.88,13.03,0.62,0.35,2],[-3.45,9.11,0.81,0.25,0],[-0.07,16.8,0.72,0.29,3],[25.08,18.69,0.82,0.31,3],[39.12,-24.46,0.9,0.34,1],[27.6,-22.52,0.77,0.33,0],[68.6,-50.67,0.9,0.34,3],[31.17,41.92,0.6,0.23,1],[62.59,8.77,0.63,0.28,2],[28.41,-67.6,0.74,0.27,0],[32.96,-76.93,0.83,0.25,1],[9.85,45.41,0.88,0.28,2],[61.73,18.32,0.59,0.23,2],[9.58,-0.81,0.79,0.27,2],[1.87,3.66,0.58,0.23,2],[57.09,12.71,0.69,0.34,0],[-11.57,-23.34,0.94,0.22,1],[26.79,-75.74,0.9,0.32,0],[69.22,46.06,0.87,0.32,1],[54.47,-23.0,0.84,0.3,1],[53.33,10.92,0.7,0.35,2],[-12.93,45.67,0.98,0.33,1],[31.4,8.11,0.67,0.35,3],[41.17,45.11,0.98,0.25,3],[61.79,38.95,0.55,0.24,3],[10.76,41.32,0.99,0.38,3],[33.89,-58.97,0.58,0.3,0],[25.33,12.62,0.94,0.33,0],[55.54,46.46,0.78,0.23,1],[24.5,-4.84,0.88,0.23,3],[65.79,17.96,0.99,0.34,1],[4.54,-8.19,0.84,0.26,1],[45.1,-31.38,0.57,0.35,3],[-8.12,37.76,0.69,0.28,2],[62.9,10.1,0.57,0.37,3],[33.18,-70.89,0.78,0.34,1],[38.85,42.52,0.76,0.25,0],[-3.05,-22.72,0.63,0.29,1],[62.06,-54.78,0.6,0.36,2],[67.68,-56.35,0.75,0.24,0],[60.47,12.53,0.59,0.25,3],[52.75,-23.17,0.85,0.35,3],[27.24,-66.41,0.75,0.3,0],[-16.42,38.24,0.93,0.35,3],[51.57,-52.21,0.63,0.26,1],[1.99,34.02,0.93,0.29,0],[35.35,-52.68,0.57,0.31,2],[5.71,15.25,0.7,0.28,3],[33.79,40.6,0.98,0.33,1],[61.86,-25.23,0.8,0.23,3],[54.85,-16.43,0.86,0.31,0],[63.11,16.87,0.95,0.32,0],[-1.11,-38.33,0.68,0.35,0],[50.05,-25.9,0.81,0.32,2],[4.55,40.72,0.61,0.31,1],[-16.62,-29.17,0.74,0.27,2],[60.59,1.21,0.57,0.27,2],[25.21,-27.49,0.99,0.36,1],[58.0,40.71,0.71,0.33,3],[59.41,-55.0,0.71,0.28,0],[57.08,10.9,0.85,0.33,3],[62.78,1.93,0.87,0.25,2],[2.66,19.33,0.79,0.31,3],[32.98,5.75,0.62,0.35,1],[4.71,-50.1,0.87,0.34,0],[50.85,15.24,0.78,0.33,1],[64.94,4.89,0.61,0.24,3],[59.03,2.45,0.98,0.36,2],[33.42,-27.58,0.6,0.32,0],[15.85,41.8,0.99,0.29,3],[54.05,16.05,0.67,0.31,3],[8.26,7.41,0.69,0.3,0],[61.12,10.51,0.91,0.3,2],[60.5,8.57,0.66,0.34,3],[7.46,14.48,0.87,0.3,3],[33.37,-30.4,0.71,0.23,3],[31.56,5.95,0.72,0.23,2],[60.34,-28.69,0.86,0.33,3],[1.37,45.21,0.55,0.33,2],[33.53,-57.59,0.8,0.33,3],[68.99,8.35,0.9,0.29,2],[26.28,4.45,0.74,0.25,2],[5.73,5.22,0.94,0.25,2],[35.47,-24.47,0.69,0.37,3],[5.01,-57.86,0.82,0.35,2],[64.44,-49.46,0.83,0.27,2],[31.09,38.67,0.84,0.32,1],[0.59,13.3,0.78,0.33,0],[33.76,27.01,0.7,0.24,1],[-10.7,-18.86,0.9,0.27,0],[1.7,40.25,0.81,0.37,0],[6.35,41.5,0.77,0.36,1],[22.0,-11.98,0.86,0.37,3],[35.72,41.47,0.8,0.32,3],[35.58,11.86,0.98,0.29,1],[29.52,27.71,0.62,0.3,0],[27.59,-54.22,0.64,0.31,2],[3.08,4.56,0.81,0.25,1],[-0.53,42.18,0.9,0.33,0],[39.41,15.28,0.88,0.24,2],[23.43,-64.65,0.63,0.32,0],[24.92,-59.87,0.65,0.32,3],[51.44,28.58,0.6,0.37,3],[-2.14,-48.6,0.55,0.26,0],[11.18,-22.35,0.88,0.31,2],[1.25,5.66,0.89,0.22,0],[48.7,-24.69,0.65,0.27,0],[8.6,5.12,0.63,0.34,1],[51.4,-25.84,0.98,0.33,0],[19.03,7.47,0.93,0.25,0],[35.65,49.46,0.7,0.3,2],[-16.4,35.46,0.98,0.29,1],[29.44,-24.23,0.64,0.25,1],[2.4,44.69,0.57,0.32,3],[24.26,-22.85,0.56,0.37,0],[58.99,-42.94,0.91,0.25,1],[24.69,41.55,0.92,0.24,3],[62.94,39.42,0.63,0.24,2],[52.04,13.07,0.66,0.31,1],[-16.62,-27.64,0.9,0.3,1],[46.47,10.47,0.65,0.33,0],[60.7,43.51,0.77,0.27,3],[32.33,31.69,0.82,0.25,3],[-1.97,-44.45,0.63,0.3,1],[66.1,-55.8,0.95,0.31,3],[69.51,10.13,0.85,0.32,2],[-1.37,41.44,0.59,0.38,2],[34.02,36.91,0.79,0.33,1],[-1.42,-46.16,0.79,0.26,1],[24.7,0.96,0.99,0.38,1],[-3.68,-20.75,0.82,0.31,2],[25.99,15.81,0.61,0.36,0],[55.67,-28.73,0.83,0.26,3],[4.98,9.02,0.99,0.24,3],[62.51,42.69,0.58,0.24,3],[30.81,-52.87,0.81,0.32,3],[60.87,5.83,0.93,0.34,2],[26.16,10.45,0.64,0.26,1],[54.91,-47.49,0.89,0.25,2],[0.1,-52.26,0.73,0.3,0],[7.42,-59.31,0.96,0.31,2],[56.24,-52.24,0.75,0.32,3],[54.44,-24.92,0.77,0.24,3],[34.8,-34.47,0.97,0.27,1],[63.67,38.31,0.98,0.27,3],[24.57,45.89,0.56,0.29,2],[53.12,29.89,0.59,0.34,1],[41.23,38.91,0.89,0.27,1],[4.34,-48.89,0.74,0.24,2],[38.14,31.26,0.57,0.23,2],[-2.85,-19.17,0.95,0.29,0],[61.45,-29.18,0.98,0.26,2],[32.26,-55.49,0.66,0.37,2],[2.02,47.26,0.93,0.27,1],[44.56,-16.54,0.91,0.3,0],[51.49,39.3,0.59,0.31,1],[32.42,33.12,0.84,0.35,2],[-7.94,-19.65,0.73,0.25,2],[63.1,13.17,0.84,0.35,0],[62.57,0.53,0.86,0.34,3],[39.19,41.06,0.77,0.3,1],[33.05,52.25,0.86,0.36,0],[58.54,-45.28,0.92,0.26,0],[55.8,45.27,0.86,0.38,0],[7.66,52.03,0.55,0.32,1],[59.83,18.06,0.68,0.31,3],[32.23,39.41,0.97,0.26,1],[54.45,10.55,0.76,0.3,0],[63.47,10.88,0.59,0.37,0],[34.58,42.78,0.91,0.23,3],[55.8,2.63,0.96,0.28,2],[-1.17,-43.28,0.79,0.24,3],[-16.85,42.06,0.57,0.29,0],[-2.4,-30.43,0.95,0.23,1],[4.05,-34.75,0.87,0.36,0],[12.46,13.05,0.96,0.23,2],[2.9,-5.27,0.95,0.29,0],[2.71,15.17,0.86,0.3,0],[-12.75,38.54,0.97,0.23,2],[58.36,27.89,0.69,0.38,1],[3.92,-13.18,0.69,0.32,1],[-1.21,-47.64,0.9,0.27,2],[51.87,11.7,0.61,0.31,2],[34.0,-0.3,0.66,0.35,2],[43.55,43.55,0.81,0.33,3],[3.35,27.07,0.6,0.35,1],[35.86,-64.74,0.94,0.23,1],[18.88,-61.65,0.83,0.34,0],[28.1,-63.58,0.97,0.35,2],[36.38,-16.15,0.66,0.26,1],[-8.52,43.34,0.79,0.24,3],[9.49,6.06,0.99,0.32,1],[1.49,-45.6,0.82,0.22,2],[58.19,-53.62,0.76,0.29,2],[49.89,40.52,0.76,0.32,2],[12.82,42.72,0.69,0.36,0],[6.3,45.8,0.76,0.24,2],[52.01,23.18,0.56,0.37,3],[54.65,5.06,0.64,0.33,0],[23.15,-63.61,0.91,0.29,2],[3.97,16.0,0.84,0.23,2],[49.84,13.95,0.71,0.23,3],[-3.13,-53.15,0.7,0.33,2],[36.36,-76.71,0.64,0.27,0],[59.7,-56.86,0.62,0.29,2],[-0.09,14.12,0.91,0.34,3],[3.78,3.19,0.59,0.24,3],[55.36,-46.57,0.56,0.32,0],[19.95,-21.01,0.95,0.34,0],[59.97,22.33,0.88,0.24,2],[29.38,-10.06,0.65,0.36,1],[13.33,-54.73,0.98,0.23,0],[55.74,-25.51,0.75,0.27,0],[-1.06,19.29,0.92,0.29,1],[18.25,-20.13,0.89,0.33,3],[-1.17,-17.31,0.77,0.34,0],[5.78,-0.26,0.61,0.36,2],[65.86,7.03,0.67,0.32,3],[5.09,21.03,0.95,0.3,0],[55.77,-14.55,0.62,0.36,0],[20.81,-63.07,0.8,0.28,2],[7.91,-30.14,0.8,0.37,1],[11.14,-27.46,0.79,0.28,0],[9.45,50.38,0.76,0.23,1],[58.83,24.28,0.8,0.38,2],[23.38,-20.98,0.96,0.29,0],[53.6,-50.96,0.98,0.3,3],[34.44,-32.81,0.66,0.31,1],[34.75,-13.6,0.73,0.26,2],[59.88,7.52,0.76,0.38,3],[56.37,32.5,0.59,0.3,2],[22.94,-0.97,0.86,0.31,0],[56.82,21.27,0.93,0.26,0],[16.95,10.46,0.86,0.31,1],[29.54,-74.69,0.88,0.24,2],[13.53,4.47,0.8,0.33,1],[35.03,16.5,0.91,0.32,2],[-14.03,19.89,0.92,0.3,3],[6.01,-3.61,0.9,0.28,1],[68.59,-52.1,0.96,0.37,0],[5.01,-27.44,0.94,0.24,2],[35.28,-62.06,0.68,0.27,2],[3.24,6.89,0.58,0.34,0],[56.13,24.08,0.62,0.31,0],[41.41,39.93,0.63,0.26,0],[3.2,53.61,0.96,0.32,3],[-0.76,11.5,0.88,0.27,2],[10.83,-59.62,0.92,0.37,3],[9.34,-26.98,0.8,0.27,0],[3.49,11.26,0.91,0.28,0],[-10.29,14.08,0.73,0.24,3],[32.19,-23.96,0.87,0.32,0],[51.54,-21.08,0.84,0.33,1],[-2.66,-46.49,0.83,0.35,2],[1.25,32.79,0.92,0.36,2],[32.06,-28.37,0.92,0.34,0],[27.1,-0.23,0.83,0.25,1],[64.74,8.15,0.58,0.37,2],[29.12,-57.55,0.6,0.37,2],[-0.85,-52.04,0.62,0.31,0],[-5.4,18.52,0.87,0.32,3],[35.39,-20.29,0.72,0.23,1],[57.84,52.49,0.66,0.25,0],[29.26,-21.41,0.85,0.37,3],[53.68,23.29,0.84,0.23,0],[24.32,-71.74,0.84,0.26,2],[53.31,20.47,0.72,0.24,2],[30.19,36.29,0.61,0.31,3],[-3.33,-51.88,0.71,0.27,3],[25.87,48.0,0.96,0.36,3],[-1.24,-62.78,0.55,0.36,1],[-14.81,-17.67,0.83,0.37,1],[50.11,-32.52,0.68,0.32,0],[30.31,-71.17,0.68,0.35,1],[35.15,40.48,0.67,0.23,0],[27.7,-74.6,0.9,0.33,3],[26.46,-63.76,0.61,0.32,3],[3.48,-49.31,0.64,0.28,3],[63.22,-52.33,0.73,0.22,3],[28.38,-44.54,0.87,0.24,2],[5.96,8.29,0.56,0.22,1],[-4.79,44.34,0.91,0.3,3],[7.99,42.66,0.7,0.29,2],[21.04,-59.54,0.83,0.26,2],[31.98,-76.82,0.87,0.33,3],[33.83,5.15,0.65,0.38,1],[-14.25,40.12,0.7,0.34,1],[51.78,-18.89,0.69,0.34,0],[-16.41,45.66,0.9,0.35,0],[3.96,-50.94,0.79,0.34,3],[68.3,-47.76,0.69,0.3,3],[35.53,-16.77,0.59,0.35,0],[65.94,-61.68,0.92,0.27,2],[4.22,30.77,0.74,0.33,2],[32.6,-69.32,0.59,0.37,2],[32.91,-50.61,0.82,0.35,2],[56.06,9.98,0.93,0.22,0],[65.51,-56.95,0.96,0.32,0],[32.73,-12.06,0.89,0.27,3],[-4.52,24.23,0.57,0.28,1],[26.6,-57.78,0.74,0.28,1],[55.38,13.45,0.63,0.33,2],[6.02,-47.76,0.91,0.28,0],[24.56,37.02,0.68,0.3,1],[53.19,15.07,0.73,0.27,0],[-2.1,-16.71,0.81,0.26,1],[29.74,20.92,0.94,0.23,1],[71.85,47.89,0.89,0.27,3],[8.27,-46.44,0.9,0.32,0],[23.01,-15.0,0.78,0.37,3],[-7.44,-21.22,0.74,0.24,2],[35.66,-18.69,0.56,0.32,1],[2.71,-45.78,0.61,0.28,2],[31.21,11.48,0.75,0.37,2],[64.33,43.28,0.85,0.3,2],[54.19,-49.02,0.68,0.37,3],[63.88,-47.05,0.63,0.38,0],[43.63,-24.66,0.86,0.33,2],[21.98,-68.55,0.6,0.26,0],[3.17,8.95,0.7,0.35,2],[-6.33,-27.26,0.68,0.33,0],[-8.24,14.7,0.63,0.23,1],[10.24,3.78,0.96,0.27,0],[25.91,-76.86,0.76,0.37,3],[30.59,49.91,0.69,0.25,3],[-2.34,22.54,0.85,0.36,3],[58.9,-37.74,0.61,0.36,3],[23.06,36.46,0.8,0.33,2],[-2.2,17.05,0.8,0.34,2],[-12.73,43.58,0.69,0.35,3],[52.84,45.19,0.86,0.36,0],[58.29,-31.89,0.92,0.26,2],[24.37,-2.71,0.68,0.31,3],[49.99,-27.42,0.98,0.33,2],[54.3,-17.31,0.65,0.35,0],[26.21,6.33,0.79,0.23,2],[7.5,-0.71,0.76,0.35,3],[62.92,52.52,0.92,0.22,0],[59.47,-32.54,0.62,0.33,2],[5.7,-22.14,0.72,0.27,0],[52.7,-36.29,0.58,0.23,2],[50.51,-23.74,0.65,0.31,2],[33.01,-52.17,0.91,0.36,3],[-14.76,-22.21,0.92,0.22,2],[-16.3,-19.32,0.64,0.25,2],[71.3,-58.76,0.97,0.37,1],[52.91,7.18,0.71,0.32,1],[9.71,-21.68,0.76,0.32,1],[32.43,-54.4,0.82,0.27,3],[3.12,17.87,0.57,0.29,0],[28.58,-60.0,0.67,0.34,2],[-7.35,11.69,0.58,0.29,0],[3.81,52.51,0.8,0.25,2],[27.2,39.39,0.65,0.26,3],[35.12,-76.66,0.76,0.36,2],[26.67,-47.74,0.58,0.25,2],[24.24,10.16,0.84,0.28,1],[21.79,-56.22,0.63,0.37,3],[-0.48,-22.91,0.56,0.24,3],[29.48,-54.41,0.72,0.32,3],[39.21,-31.81,0.68,0.3,0],[-9.62,-28.09,0.99,0.23,2],[6.55,-2.47,0.97,0.24,0],[12.79,1.93,0.86,0.28,0],[58.28,9.52,0.6,0.27,0],[55.85,-19.91,0.76,0.35,3],[70.62,10.49,0.57,0.31,2],[2.47,-62.13,0.92,0.34,0],[63.65,-61.01,0.83,0.23,1],[12.98,47.18,0.68,0.35,0],[23.81,-62.22,0.69,0.35,2],[2.56,42.42,0.61,0.24,1],[6.76,-21.77,0.67,0.23,0],[21.94,-63.21,0.99,0.34,2],[6.46,32.74,0.84,0.32,0],[56.06,-30.27,0.66,0.24,3],[1.97,-44.09,0.85,0.32,3],[2.04,13.45,0.61,0.25,2],[10.55,-44.81,0.71,0.38,2],[34.43,-18.01,0.75,0.22,2],[5.89,10.05,0.55,0.3,1],[4.14,46.77,0.61,0.32,3],[20.4,8.12,0.67,0.28,0],[33.77,44.11,0.86,0.3,1],[25.4,-54.9,0.82,0.28,1],[11.32,1.86,0.89,0.27,3],[1.55,-42.17,0.69,0.25,1],[49.59,8.72,0.64,0.24,3],[17.09,44.29,0.89,0.32,1],[37.07,-28.59,0.86,0.22,0],[25.85,-28.9,0.71,0.3,3],[0.86,-18.37,0.8,0.28,3],[30.01,-0.79,0.72,0.25,1],[7.56,6.53,0.69,0.31,1],[7.14,47.2,0.89,0.22,0],[6.52,-22.92,0.94,0.26,0],[29.0,43.74,0.76,0.35,2],[61.63,20.37,0.74,0.32,1],[-8.17,12.17,0.62,0.35,2],[37.3,-20.04,0.62,0.34,3],[32.75,41.68,0.61,0.32,1],[-3.95,35.73,0.79,0.36,0],[62.17,-23.5,0.94,0.22,3],[58.65,-61.15,0.67,0.27,0],[20.96,-50.49,0.61,0.29,0],[2.7,49.85,0.66,0.23,1],[52.32,19.13,0.89,0.23,2],[3.74,12.51,0.93,0.25,3],[32.8,-58.52,0.9,0.27,2],[32.8,16.81,0.96,0.37,3],[61.77,46.55,0.63,0.3,2],[39.37,48.63,0.83,0.22,3],[61.28,-56.57,0.87,0.37,0],[-2.69,20.83,0.95,0.3,2],[11.38,-50.66,0.92,0.26,0],[70.7,48.77,0.97,0.37,2],[36.6,3.94,0.83,0.27,0],[57.8,36.73,0.65,0.34,3],[9.31,14.06,0.99,0.38,1],[29.82,10.03,0.88,0.28,3],[36.83,35.98,0.99,0.29,3],[38.35,-58.65,0.73,0.24,1],[19.63,43.72,0.56,0.32,3],[28.18,10.23,0.78,0.27,2],[65.39,9.74,0.92,0.23,2],[1.78,-48.38,0.87,0.33,3],[66.77,8.92,0.99,0.31,1],[35.33,26.54,0.66,0.37,3],[49.58,21.59,0.81,0.25,1],[-5.03,15.63,0.76,0.25,1],[49.47,23.93,0.78,0.3,0],[11.16,5.47,0.97,0.38,2],[27.5,47.7,0.57,0.24,0],[-4.01,-52.6,0.78,0.23,1],[-7.19,20.12,0.84,0.26,0],[-1.74,-27.31,0.89,0.33,1],[10.34,-48.38,0.83,0.28,3],[37.21,-77.82,0.85,0.25,2],[37.15,-21.11,0.7,0.28,1],[41.32,-30.14,0.77,0.26,3],[-1.46,50.16,0.78,0.31,1],[60.85,48.24,0.72,0.25,0],[60.63,24.54,0.68,0.3,0],[31.29,-12.0,0.61,0.3,1],[54.93,14.52,0.56,0.31,2],[52.84,-63.43,0.71,0.29,0],[1.81,36.91,0.72,0.33,1],[7.28,2.52,0.88,0.22,1],[34.43,-74.73,0.97,0.26,0],[56.51,-22.46,0.9,0.27,0],[11.96,51.48,0.59,0.3,1],[29.68,-64.42,0.85,0.26,2],[-4.62,14.25,0.82,0.29,1],[45.53,-23.8,0.99,0.36,2],[27.07,14.27,0.58,0.22,2],[58.55,33.43,0.68,0.31,0],[53.67,5.2,0.74,0.36,2],[36.53,-17.22,0.93,0.35,3],[26.11,-60.31,0.75,0.35,3],[28.59,-18.61,0.88,0.34,2],[51.91,32.24,0.62,0.35,0],[-11.01,40.05,0.59,0.38,0],[56.41,14.97,0.62,0.3,1],[52.92,17.65,0.91,0.29,2],[24.16,8.25,0.67,0.32,1],[4.75,19.33,0.97,0.36,1],[22.38,-10.21,0.58,0.23,1],[63.5,-20.8,0.68,0.28,2],[27.11,50.12,0.99,0.32,3],[57.52,-40.99,0.74,0.32,2],[62.15,-21.98,0.81,0.23,3],[54.67,23.74,0.71,0.28,0],[4.72,-14.77,0.89,0.28,2],[57.18,-60.38,0.69,0.29,3],[33.46,13.86,0.71,0.35,0],[30.13,-72.65,0.93,0.37,0],[54.04,-14.73,0.8,0.27,2],[-14.87,10.36,0.91,0.26,1],[22.65,-62.23,0.81,0.29,0],[32.81,-68.13,0.84,0.24,1],[55.12,-35.46,0.98,0.3,3],[17.68,45.57,0.82,0.25,0],[-7.97,13.12,0.84,0.34,2],[-16.73,-32.71,0.94,0.23,3],[54.47,-21.24,0.95,0.37,2],[4.7,16.7,0.78,0.25,0],[-2.35,-32.72,0.63,0.31,3],[18.29,8.18,0.86,0.29,0],[9.32,2.73,0.59,0.34,2],[66.55,-51.25,0.77,0.35,3],[-7.32,14.14,0.61,0.24,0],[9.34,-59.36,0.99,0.29,2],[26.09,52.8,0.68,0.23,1],[0.27,-20.87,0.58,0.27,1],[56.72,17.22,0.69,0.37,3],[25.27,5.52,0.71,0.26,0],[6.13,48.99,0.96,0.38,3],[36.9,11.65,0.56,0.29,2],[58.33,21.6,0.69,0.35,2],[68.39,-62.04,0.61,0.29,2],[33.22,38.15,0.63,0.27,0],[64.17,12.13,0.77,0.22,1],[59.19,11.13,0.8,0.35,0],[6.5,-61.63,0.94,0.28,3],[-3.58,-18.17,0.94,0.22,3],[5.3,-51.27,0.78,0.35,1],[39.79,-18.14,0.92,0.31,0],[30.19,40.4,0.82,0.25,0],[52.67,5.06,0.79,0.38,0],[24.85,-64.88,0.73,0.36,0],[1.38,-41.02,0.89,0.29,0],[4.01,14.86,0.76,0.22,2],[-4.13,-38.26,0.8,0.36,1],[57.22,-37.4,0.96,0.31,2],[2.1,5.01,1.0,0.31,0],[54.52,-30.4,0.68,0.31,1],[-6.79,17.7,0.75,0.27,3],[-15.03,-55.47,0.96,0.35,3],[20.81,4.54,0.65,0.25,1],[29.83,-46.63,0.9,0.31,0],[59.1,19.63,0.89,0.3,3],[44.23,-22.26,0.99,0.37,3],[67.68,45.5,0.82,0.32,1],[28.57,46.19,0.98,0.26,0],[-0.31,33.14,0.62,0.29,0],[42.79,45.33,0.78,0.34,2],[-3.51,-29.33,0.98,0.3,3],[33.15,-20.96,0.56,0.25,2],[0.65,-62.73,0.8,0.28,3],[51.05,43.38,0.7,0.27,2],[26.75,46.78,0.98,0.29,1],[55.61,-66.32,0.89,0.23,1],[54.31,41.96,0.82,0.27,2],[14.15,46.76,0.79,0.24,1],[65.69,11.32,0.84,0.26,0],[38.01,-27.76,0.59,0.23,0],[61.5,-31.57,0.61,0.33,3],[-15.9,44.84,0.66,0.37,3],[29.47,-11.03,0.72,0.28,1],[30.07,39.04,0.68,0.3,1],[4.93,11.16,0.67,0.3,3],[4.77,-12.7,0.83,0.27,1],[-3.34,-27.38,0.91,0.34,0],[-2.87,-54.22,0.86,0.35,3],[54.61,48.68,0.78,0.3,1],[40.89,12.54,0.95,0.37,3],[-0.73,-37.04,0.87,0.37,1],[52.36,-27.88,0.75,0.31,3],[30.5,-21.71,0.62,0.33,1],[57.34,48.24,0.96,0.29,2],[58.32,-62.8,0.78,0.27,3],[63.76,41.59,0.61,0.31,1],[31.2,32.15,0.6,0.29,3],[35.64,31.86,0.93,0.28,0],[40.94,41.01,0.85,0.26,1],[53.82,-23.83,0.92,0.37,1],[30.55,-76.61,0.82,0.29,2],[56.89,-50.05,0.55,0.23,1],[32.02,4.3,0.95,0.22,1],[56.02,-45.19,0.6,0.33,3],[-16.25,18.32,0.57,0.25,2],[-13.6,14.25,0.67,0.33,1],[33.27,-63.46,0.59,0.3,2],[25.65,-23.61,0.63,0.36,1],[3.31,21.7,0.78,0.27,2],[-0.57,45.65,0.7,0.28,0],[26.37,-8.41,0.9,0.23,0],[58.75,14.65,0.67,0.3,2],[25.58,38.46,0.63,0.34,3],[34.16,-62.08,0.67,0.28,0],[25.81,-71.63,0.71,0.37,0],[25.61,7.09,0.55,0.27,3],[29.81,42.89,0.74,0.34,3],[35.05,-59.89,0.85,0.35,2],[55.0,51.84,0.74,0.27,2],[26.83,-74.03,0.82,0.36,0],[5.81,22.19,0.9,0.28,1],[64.77,10.84,0.87,0.29,0],[-16.52,-20.92,0.79,0.33,0],[59.41,-19.18,0.89,0.25,1],[-15.97,-18.16,0.76,0.32,2],[34.96,-60.96,0.92,0.38,0],[-1.04,14.19,0.63,0.35,0],[9.97,9.47,0.81,0.29,3],[53.85,-42.2,0.95,0.26,0],[31.07,-62.4,0.76,0.32,1],[29.25,-2.98,0.78,0.32,3],[38.89,-21.88,0.7,0.27,0],[33.76,-65.45,0.59,0.36,2],[29.93,2.37,0.55,0.29,1],[-4.16,17.2,0.96,0.25,0],[0.49,-27.18,0.76,0.32,3],[62.89,51.01,0.67,0.37,2],[58.39,4.63,0.7,0.26,0],[57.6,-46.6,0.78,0.3,3],[50.06,17.44,0.93,0.29,2],[24.19,-57.61,0.71,0.32,2],[31.81,-10.7,0.86,0.25,1],[-2.12,15.69,0.74,0.23,3],[57.7,-54.44,0.99,0.23,3],[32.09,10.68,0.66,0.3,3],[-3.01,5.66,0.57,0.23,3],[11.48,-19.92,0.98,0.29,0],[30.93,-66.44,0.73,0.28,2],[27.67,40.24,0.76,0.26,3],[26.95,-51.64,0.71,0.29,1],[5.64,17.68,0.78,0.32,2],[33.36,20.04,0.79,0.36,2],[54.64,18.77,0.68,0.36,0],[26.39,-53.88,0.85,0.34,0],[4.73,32.37,0.67,0.29,0],[49.98,47.42,0.77,0.26,2],[55.6,22.79,0.99,0.31,3],[0.24,46.16,0.91,0.23,2],[62.69,-60.43,0.77,0.22,2],[21.55,47.98,0.98,0.37,3],[-12.16,8.0,0.79,0.24,0],[47.12,20.04,0.85,0.37,1],[53.53,-28.96,0.83,0.29,3],[35.71,-57.06,0.63,0.29,1],[4.89,-22.86,0.62,0.27,1],[56.75,-29.19,0.94,0.26,1],[20.73,44.74,0.66,0.37,3],[61.89,-39.87,0.86,0.25,0],[5.02,18.42,0.75,0.24,0],[4.33,-2.41,0.81,0.34,2],[57.89,0.75,0.69,0.23,1],[41.05,-23.77,0.98,0.3,2],[63.09,6.16,0.75,0.37,1],[28.93,-3.91,0.82,0.26,2],[33.78,-53.51,0.81,0.31,2],[50.99,6.45,1.0,0.26,0],[0.46,18.24,0.88,0.34,0],[53.15,-21.31,0.81,0.36,1],[-8.19,17.0,0.57,0.36,1],[-1.43,8.55,0.93,0.33,1],[-11.14,38.91,0.93,0.31,2],[24.29,-23.89,0.91,0.38,3],[7.29,10.97,0.95,0.35,1],[1.5,11.83,0.92,0.34,0],[30.21,-60.86,0.63,0.28,3],[28.62,-55.11,0.72,0.33,2],[10.98,47.83,0.56,0.35,0],[20.52,14.78,1.0,0.36,3],[-0.03,-47.6,0.98,0.29,1],[36.62,-23.35,0.79,0.36,2],[24.3,6.85,0.69,0.34,0],[-0.63,20.42,0.62,0.24,3],[57.0,6.02,0.69,0.25,0],[0.29,25.92,0.83,0.25,1],[28.69,0.42,0.91,0.37,2],[5.01,-20.55,0.95,0.23,1],[62.99,-50.38,0.71,0.35,3],[32.57,29.57,0.8,0.26,3],[54.34,-51.59,0.99,0.24,2],[34.58,47.24,0.61,0.27,1],[52.83,41.9,0.63,0.29,1],[42.1,34.67,0.98,0.26,1],[33.94,48.45,0.98,0.23,2],[59.65,38.38,0.91,0.23,0],[-0.91,-29.2,0.76,0.29,2],[52.27,47.33,0.84,0.37,1],[32.06,-51.81,0.71,0.32,1],[25.08,14.29,0.8,0.26,2],[38.02,5.83,0.76,0.33,2],[0.83,6.96,0.92,0.35,2],[59.36,31.91,0.92,0.3,0],[21.6,-27.6,0.74,0.32,0],[44.09,-29.32,0.57,0.25,2],[-15.13,8.98,0.67,0.34,3],[5.15,-48.22,0.75,0.32,1],[3.26,-18.83,0.9,0.26,1],[30.79,-70.11,0.94,0.22,0],[67.84,-58.0,0.86,0.35,1],[-4.58,-50.01,0.87,0.31,2],[2.86,-39.06,0.96,0.38,3],[16.77,49.7,0.89,0.34,0],[56.05,-15.71,0.91,0.25,3],[59.94,51.09,0.9,0.29,2],[40.2,-22.52,0.71,0.3,2],[26.79,36.81,0.58,0.25,2],[48.63,-23.71,0.84,0.31,0],[30.26,-17.15,0.82,0.37,2],[62.89,20.38,0.95,0.3,1],[7.59,8.19,0.96,0.31,1],[29.91,34.12,0.96,0.35,0],[9.29,16.42,0.98,0.22,1],[2.36,8.05,0.89,0.32,3],[-1.81,44.34,0.59,0.37,2],[14.87,-53.93,0.76,0.24,2],[29.7,11.01,0.76,0.27,3],[0.94,17.07,0.8,0.29,2],[28.96,37.44,1.0,0.31,2],[-10.52,11.18,0.81,0.29,1],[29.04,5.16,0.77,0.35,0],[60.3,52.24,0.76,0.31,1],[4.21,39.28,0.89,0.3,0],[-6.23,7.22,0.63,0.38,0],[56.71,-48.7,0.57,0.3,1],[26.79,-18.64,0.96,0.3,2],[61.75,-51.9,0.58,0.27,2],[24.1,-65.94,0.98,0.24,1],[-6.5,8.55,0.99,0.33,1],[8.66,10.57,0.75,0.25,2],[18.0,-18.08,0.69,0.23,1],[49.31,-19.49,0.56,0.38,1],[57.38,39.71,0.68,0.33,3],[28.61,40.05,0.73,0.31,1],[69.57,11.64,0.96,0.29,1],[16.4,46.25,0.91,0.24,3],[18.29,-53.27,0.89,0.3,0],[27.31,-24.14,0.9,0.26,0],[62.72,-41.76,0.72,0.34,2],[37.62,39.23,0.62,0.3,1],[26.33,-69.94,0.75,0.28,0],[67.46,47.19,0.61,0.38,2],[27.81,8.8,0.6,0.26,2],[58.03,11.88,0.92,0.33,2],[59.44,-53.7,0.88,0.34,1],[7.92,-23.86,0.58,0.33,0],[-14.54,-28.9,0.86,0.32,3],[59.85,46.6,0.59,0.33,0],[35.07,35.47,0.94,0.24,1],[58.88,7.09,0.88,0.3,2],[59.43,41.95,0.71,0.35,2],[8.24,-7.23,0.99,0.34,0],[53.05,32.19,0.87,0.36,2],[42.42,-25.19,0.84,0.38,2],[-16.5,-59.53,0.68,0.33,0],[11.8,-54.57,0.82,0.26,3],[11.75,-53.58,0.67,0.32,0],[18.35,-64.58,0.55,0.34,0],[35.75,13.68,0.95,0.37,3],[52.82,-17.56,0.95,0.37,0],[30.24,-47.75,0.86,0.28,3],[31.03,37.25,0.74,0.31,1],[-0.01,15.1,0.93,0.23,2],[30.28,-58.15,0.93,0.27,0],[-0.23,8.34,0.61,0.28,2],[60.78,-24.81,0.62,0.35,0],[33.72,-77.94,0.68,0.27,3],[1.93,10.49,0.81,0.28,0],[57.85,-57.26,0.75,0.28,3],[8.0,-47.77,0.8,0.32,0],[49.33,10.96,0.68,0.27,3],[35.79,2.63,0.8,0.34,1],[5.16,43.51,0.87,0.32,2],[20.1,48.21,0.72,0.34,1],[62.58,-33.48,0.95,0.25,3],[8.03,-60.31,0.92,0.37,0],[36.0,18.98,0.69,0.36,3],[57.07,42.59,0.85,0.23,3],[22.81,-50.62,0.9,0.23,2],[23.97,50.55,0.93,0.32,0],[68.27,7.52,0.71,0.32,2],[6.09,-59.41,0.99,0.35,0],[29.16,49.04,0.62,0.35,0]];   // [x, z, height, radius, colour] in model units
+const HALF_ROAD = {motorway:12,trunk:11,primary:9,secondary:8,tertiary:7,minor:5.5,service:4.5,track:3,path:2.5,pedestrian:3,busway:6};
+let treeCanopy=null, treeTrunk=null, treeAlive=null, treeTimer=null;
+
+function addTrees(group){
+  const greens=["#4E8A3E","#5E9A4F","#3F7A3A","#6BA65A"].map(c=>new THREE.Color(c));
+  const trunkGeo=new THREE.CylinderGeometry(0.5,0.7,1,6); trunkGeo.translate(0,0.5,0);
+  const canopyGeo=new THREE.IcosahedronGeometry(1,1);
+  treeTrunk=new THREE.InstancedMesh(trunkGeo,new THREE.MeshLambertMaterial({color:0x6B4A2F}),TREES.length);
+  treeCanopy=new THREE.InstancedMesh(canopyGeo,new THREE.MeshLambertMaterial({color:0xffffff,flatShading:true}),TREES.length);
+  TREES.forEach((t,i)=>treeCanopy.setColorAt(i,greens[t[4]]));
+  treeAlive=new Array(TREES.length).fill(true);
+  placeTrees(); group.add(treeTrunk); group.add(treeCanopy);
+  const btn=$("#btnTrees"); btn.hidden=false;
+  btn.onclick=()=>{ const on=treeCanopy.visible; treeCanopy.visible=treeTrunk.visible=!on; btn.textContent=on?"Show trees":"Hide trees"; map.triggerRepaint(); };
+  map.on("moveend",scheduleTreeFilter);
+  map.on("sourcedata",e=>{ if(e.sourceId===VSRC && e.isSourceLoaded) scheduleTreeFilter(); });
+  scheduleTreeFilter();
+}
+function placeTrees(){
+  const m=new THREE.Matrix4(), q=new THREE.Quaternion(), p=new THREE.Vector3(), s=new THREE.Vector3();
+  TREES.forEach((t,i)=>{
+    const on=treeAlive[i], h=t[2], r=t[3];
+    m.compose(p.set(t[0],0.03,t[1]),q,s.set(on?0.06:0,on?h*0.5:0,on?0.06:0)); treeTrunk.setMatrixAt(i,m);
+    m.compose(p.set(t[0],0.03+h*0.45+r*0.9,t[1]),q,s.set(on?r:0,on?r*1.05:0,on?r:0)); treeCanopy.setMatrixAt(i,m);
+  });
+  treeTrunk.instanceMatrix.needsUpdate=true; treeCanopy.instanceMatrix.needsUpdate=true;
+  if(treeCanopy.instanceColor) treeCanopy.instanceColor.needsUpdate=true;
+  map.triggerRepaint();
+}
+function scheduleTreeFilter(){ clearTimeout(treeTimer); treeTimer=setTimeout(filterTreesByRoads,500); }
+function filterTreesByRoads(){
+  if(!treeCanopy||!VSRC) return;
+  let feats=[]; try{ feats=map.querySourceFeatures(VSRC,{sourceLayer:"transportation"}); }catch(e){ return; }
+  const mLng=mPerDegLng(MODEL.lat), segs=[];
+  for(const f of feats){
+    const hw=HALF_ROAD[f.properties.class]; if(hw===undefined||f.properties.brunnel==="tunnel") continue;
+    const g=f.geometry, lines=g.type==="LineString"?[g.coordinates]:g.type==="MultiLineString"?g.coordinates:[];
+    for(const ln of lines) for(let i=0;i<ln.length-1;i++)
+      segs.push([(ln[i][0]-MODEL.lng)*mLng,(ln[i][1]-MODEL.lat)*M_PER_DEG_LAT,(ln[i+1][0]-MODEL.lng)*mLng,(ln[i+1][1]-MODEL.lat)*M_PER_DEG_LAT,hw+2.5]);
+  }
+  if(!segs.length) return;
+  const a=MODEL.rotationDeg*Math.PI/180, ca=Math.cos(a), sa=Math.sin(a);
+  TREES.forEach((t,i)=>{
+    const e0=t[0], n0=-t[1];
+    const x=(e0*ca-n0*sa)*MODEL.scale+MODEL.moveEast, y=(e0*sa+n0*ca)*MODEL.scale+MODEL.moveNorth;
+    let ok=true;
+    for(const s of segs){
+      const dx=s[2]-s[0], dy=s[3]-s[1], L=dx*dx+dy*dy;
+      let u=L?((x-s[0])*dx+(y-s[1])*dy)/L:0; u=u<0?0:u>1?1:u;
+      const ex=s[0]+u*dx-x, ey=s[1]+u*dy-y;
+      if(ex*ex+ey*ey<s[4]*s[4]){ ok=false; break; }
+    }
+    treeAlive[i]=ok;
+  });
+  placeTrees();
+}
+
+async function addModel(){
+  const V="0.147.0", B="https://cdn.jsdelivr.net/npm/three@"+V;
+  await loadScript(B+"/build/three.min.js");
+  await loadScript(B+"/examples/js/loaders/GLTFLoader.js");
+  map.addLayer({
+    id:"campus-model", type:"custom", renderingMode:"3d",
+    onAdd(m,gl){
+      this.map=m; this.camera=new THREE.Camera(); this.scene=new THREE.Scene();
+      const a=new THREE.DirectionalLight(0xffffff,0.9); a.position.set(-40,100,-60).normalize(); this.scene.add(a);
+      const b=new THREE.DirectionalLight(0xffffff,0.45); b.position.set(60,60,80).normalize(); this.scene.add(b);
+      this.scene.add(new THREE.AmbientLight(0xffffff,0.75));
+      new THREE.GLTFLoader().load(MODEL.url, g=>{
+        modelScene=g.scene; world=new THREE.Group(); world.add(modelScene); this.scene.add(world); addTrees(world); applyOpacity(); m.triggerRepaint();
+        $("#btnBuildings").hidden=false; setDefaultBuildings(!MODEL.hideDefaultBuildings);
+      }, undefined, err=>console.warn("Could not load "+MODEL.url+". Is it in the same folder, and are you using Live Server or a web host?",err));
+      this.renderer=new THREE.WebGLRenderer({canvas:m.getCanvas(),context:gl,antialias:true});
+      this.renderer.outputEncoding=THREE.sRGBEncoding; this.renderer.autoClear=false;
+    },
+    render(gl,matrix){
+      if(world) world.rotation.y=MODEL.rotationDeg*Math.PI/180;
+      const o=modelOrigin(), u=o.meterInMercatorCoordinateUnits()*MODEL.scale;
+      const rotX=new THREE.Matrix4().makeRotationX(Math.PI/2);
+      const proj=new THREE.Matrix4().fromArray(matrix);
+      const local=new THREE.Matrix4().makeTranslation(o.x,o.y,o.z).scale(new THREE.Vector3(u,-u,u)).multiply(rotX);
+      this.camera.projectionMatrix=proj.multiply(local);
+      this.renderer.resetState(); this.renderer.render(this.scene,this.camera); this.map.triggerRepaint();
+    }
+  });
+}
+$("#btnBuildings").onclick=()=>{ const on=map.getLayoutProperty("campus-buildings","visibility")!=="none"; setDefaultBuildings(!on); };
+
+/* ---------- calibrate panel: open the page with ?calibrate at the end of the address ---------- */
+function setupCalibrate(){
+  if(!/[?&]calibrate/.test(location.search) || !MODEL.enabled) return;
+  const box=$("#calib"); box.hidden=false;
+  const defs=[["rotationDeg","Rotation (degrees)",-180,180,0.5],["scale","Scale (metres per unit)",6,20,0.1],
+              ["moveEast","Move east (metres)",-300,300,1],["moveNorth","Move north (metres)",-300,300,1],["opacity","Model opacity",0.2,1,0.05]];
+  const body=$("#calibBody"); const out=$("#calibOut");
+  const show=()=>{ out.value="rotationDeg: "+MODEL.rotationDeg+",\nscale: "+MODEL.scale+",\nmoveEast: "+MODEL.moveEast+",\nmoveNorth: "+MODEL.moveNorth+","; };
+  defs.forEach(([k,label,min,max,step])=>{
+    const row=document.createElement("label"); row.className="crow";
+    const sp=document.createElement("span"), val=document.createElement("b"), inp=document.createElement("input");
+    sp.textContent=label; inp.type="range"; inp.min=min; inp.max=max; inp.step=step; inp.value=MODEL[k]; val.textContent=MODEL[k];
+    inp.oninput=()=>{ MODEL[k]=parseFloat(inp.value); val.textContent=MODEL[k]; if(k==="opacity") applyOpacity(); else map.triggerRepaint(); if(treeCanopy) scheduleTreeFilter(); show(); };
+    row.append(sp,val,inp); body.appendChild(row);
+  });
+  $("#calibCopy").onclick=()=>{ out.select(); try{navigator.clipboard.writeText(out.value);}catch(e){document.execCommand("copy");} $("#calibCopy").textContent="Copied"; setTimeout(()=>$("#calibCopy").textContent="Copy values",1500); };
+  show();
+}
+
+/* ---------------------- place name labels ---------------------- */
+let labelsReady=false;
+function labelData(){
+  return {type:"FeatureCollection",features:visible().map(p=>({type:"Feature",properties:{name:p.name,cat:p.cat},geometry:{type:"Point",coordinates:[p.lng,p.lat]}}))};
+}
+function addLabels(){
+  map.addSource("place-labels",{type:"geojson",data:labelData()});
+  map.addLayer({id:"place-labels",type:"symbol",source:"place-labels",minzoom:16.3,
+    layout:{"text-field":["get","name"],"text-font":["Noto Sans Regular"],"text-size":12,"text-anchor":"top","text-offset":[0,1.1],"text-max-width":8,"text-optional":true},
+    paint:{"text-color":"#12261F","text-halo-color":"#FFFFFF","text-halo-width":1.8}});
+  labelsReady=true;
+}
+
+/* ---------------------- markers & popups ---------------------- */
+const markers = {};
+let popup = null, activeId = null;
+
+function popupNode(p){
+  const c=CATS[p.cat].color, d=document.createElement("div"); d.className="pop";
+  if(p.photo){ const im=document.createElement("img"); im.src="images/"+p.photo; im.alt=p.name; d.appendChild(im); }
+  const top=document.createElement("div"); top.className="top"; top.style.background=c;
+  const h=document.createElement("h3"); h.textContent=p.name;
+  const k=document.createElement("div"); k.className="kind"; k.textContent=p.cat+" \u2022 "+p.type;
+  top.append(h,k);
+  const body=document.createElement("div"); body.className="body";
+  if(!p.verified){ const ap=document.createElement("div"); ap.className="approx"; ap.textContent="Approximate location"; body.appendChild(ap); }
+  const para=document.createElement("p"); para.textContent=p.desc; body.appendChild(para);
+  const a=document.createElement("a"); a.href="https://www.google.com/maps/dir/?api=1&destination="+p.lat+","+p.lng;
+  a.target="_blank"; a.rel="noopener"; a.textContent="Get directions"; body.appendChild(a);
+  d.append(top,body); return d;
+}
+
+function select(id, fly=true){
+  const p=PLACES.find(x=>x.id===id); if(!p||!map) return;
+  if(activeId&&markers[activeId]) markers[activeId].el.firstChild.classList.remove("on");
+  activeId=id; markers[id].el.firstChild.classList.add("on");
+  if(popup) popup.remove();
+  popup=new maplibregl.Popup({offset:18,maxWidth:"300px",closeButton:true}).setLngLat([p.lng,p.lat]).setDOMContent(popupNode(p)).addTo(map);
+  popup.on("close",()=>{ if(activeId===id){ markers[id].el.firstChild.classList.remove("on"); activeId=null; renderList(); }});
+  if(fly) map.flyTo({center:[p.lng,p.lat],zoom:Math.max(map.getZoom(),17.4),duration:reduceMotion?0:1400,essential:true});
+  renderList();
+  if(isSmall()) setPanel(false);
+}
+
+if(map) PLACES.forEach(p=>{
+  const el=document.createElement("div"), pin=document.createElement("span");
+  pin.className="pin"; pin.style.setProperty("--c",CATS[p.cat].color); el.appendChild(pin);
+  el.setAttribute("role","button"); el.setAttribute("aria-label",p.name); el.tabIndex=0;
+  el.addEventListener("click",e=>{e.stopPropagation();select(p.id);});
+  el.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();select(p.id);} });
+  const m=new maplibregl.Marker({element:el}).setLngLat([p.lng,p.lat]).addTo(map);
+  markers[p.id]={marker:m,el};
+});
+
+/* ---------------------- list, search, filters ---------------------- */
+const active = new Set(Object.keys(CATS));
+let query = "";
+
+function visible(){
+  const q=query.trim().toLowerCase();
+  return PLACES.filter(p=>active.has(p.cat)&&(!q||(p.name+" "+p.type+" "+p.cat+" "+p.desc).toLowerCase().includes(q)));
+}
+
+function renderChips(){
+  const box=$("#chips"); box.innerHTML="";
+  Object.entries(CATS).forEach(([name,c])=>{
+    const b=document.createElement("button"); b.type="button"; b.className="chip";
+    b.style.setProperty("--c",c.color); b.style.setProperty("--t",c.tint);
+    b.setAttribute("aria-pressed",active.has(name));
+    b.innerHTML="<i></i>"; b.append(name);
+    b.onclick=()=>{ active.has(name)?active.delete(name):active.add(name); renderChips(); renderList(); };
+    box.appendChild(b);
+  });
+}
+
+function renderList(){
+  const vis=visible(), ids=new Set(vis.map(p=>p.id)), list=$("#list");
+  list.innerHTML="";
+  $("#count").textContent=vis.length+" of "+PLACES.length+" places";
+  $("#empty").hidden=vis.length>0;
+  Object.keys(CATS).forEach(cat=>{
+    const items=vis.filter(p=>p.cat===cat); if(!items.length) return;
+    const h=document.createElement("h2"); const dot=document.createElement("i"); dot.style.background=CATS[cat].color;
+    h.append(dot,cat); list.appendChild(h);
+    items.forEach(p=>{
+      const b=document.createElement("button"); b.type="button"; b.className="place";
+      if(p.id===activeId) b.setAttribute("aria-current","true");
+      b.innerHTML="<b></b><span></span>"; b.firstChild.textContent=p.name; b.lastChild.textContent=p.type;
+      b.onclick=()=>select(p.id); list.appendChild(b);
+    });
+  });
+  PLACES.forEach(p=>{ if(markers[p.id]) markers[p.id].el.style.display=ids.has(p.id)?"":"none"; });
+  if(popup && activeId && !ids.has(activeId)) popup.remove();
+  if(labelsReady){ try{ map.getSource("place-labels").setData(labelData()); }catch(e){} }
+}
+
+$("#q").addEventListener("input",e=>{query=e.target.value;renderList();});
+$("#q").addEventListener("keydown",e=>{ if(e.key==="Enter"){const v=visible(); if(v.length===1) select(v[0].id);} });
+$("#showAll").onclick=()=>{ Object.keys(CATS).forEach(c=>active.add(c)); query=""; $("#q").value=""; renderChips(); renderList(); };
+
+/* ---------------------- view buttons & panel ---------------------- */
+function updateViewButtons(){ if(map) $("#btn3d").textContent = map.getPitch()>5 ? "Switch to 2D" : "Switch to 3D"; }
+$("#btn3d").onclick=()=>{
+  const flat=map.getPitch()<=5, d=reduceMotion?0:900;
+  map.easeTo(flat?{pitch:CAMPUS.pitch,bearing:CAMPUS.bearing,duration:d}:{pitch:0,bearing:0,duration:d});
+};
+$("#btnReset").onclick=()=>{ if(popup) popup.remove();
+  map.flyTo({center:[CAMPUS.lng,CAMPUS.lat],zoom:CAMPUS.zoom,pitch:CAMPUS.pitch,bearing:CAMPUS.bearing,duration:reduceMotion?0:1400}); };
+
+function setPanel(open){
+  $("#panel").classList.toggle("collapsed",!open);
+  $("#panelToggle").textContent=open?"Hide list":"Show list";
+  $("#panelToggle").setAttribute("aria-expanded",open);
+  if(map) setTimeout(()=>map.resize(),50);
+}
+$("#panelToggle").onclick=()=>setPanel($("#panel").classList.contains("collapsed"));
+addEventListener("resize",()=>{ if(map) map.resize(); });
+
+renderChips(); renderList(); setupCalibrate();
+</script>
+</body>
+</html>
